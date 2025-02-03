@@ -1,0 +1,319 @@
+//sum
+#include <omp.h>
+#include <stdio.h>
+
+int main() {
+    int sum = 0;
+    int n = 100;
+
+    #pragma omp parallel for reduction(+:sum)
+    for (int i = 1; i <= n; i++) {
+        sum += i;
+    }
+
+    printf("Sum of first %d natural numbers = %d\n", n, sum);
+    return 0;
+}
+-----------------------------------------------------------------------
+
+//quick sort
+#include <omp.h>
+#include <stdio.h>
+
+#define N 10  
+
+void swap(int* a, int* b) 
+{
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+int partition(int arr[], int low, int high) 
+{
+    int pivot = arr[high];  
+    int i = low - 1;        
+
+    for (int j = low; j < high; j++) 
+    {
+        if (arr[j] < pivot) 
+        {  
+            i++;
+            swap(&arr[i], &arr[j]);
+        }
+    }
+    swap(&arr[i + 1], &arr[high]);  
+    return i + 1;  
+}
+
+void quickSort(int arr[], int low, int high) 
+{
+    if (low < high) 
+    {
+        int pi = partition(arr, low, high);
+        if (high - low > 1000) 
+        {  
+            #pragma omp task
+            quickSort(arr, low, pi - 1);
+
+            #pragma omp task
+            quickSort(arr, pi + 1, high);
+        } 
+        else 
+        {
+            quickSort(arr, low, pi - 1);
+            quickSort(arr, pi + 1, high);
+        }
+
+        #pragma omp taskwait 
+    }
+}
+
+int main() {
+    int arr[N] = {9, 7, 5, 11, 12, 2, 14, 3, 10, 6};
+
+    printf("Unsorted array:\n");
+    for (int i = 0; i < N; i++) 
+        printf("%d ", arr[i]);
+    printf("\n");
+
+    #pragma omp parallel
+    {
+        #pragma omp single  
+        quickSort(arr, 0, N - 1);
+    }
+
+    printf("Sorted array:\n");
+    for (int i = 0; i < N; i++) 
+        printf("%d ", arr[i]);
+
+    return 0;
+}
+
+---------------------------------------------
+//pi
+#include <omp.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main() 
+{
+    int num_points = 10000000;  
+    int count = 0;              
+    double x, y;
+
+    #pragma omp parallel private(x, y) reduction(+:count)
+    {
+        #pragma omp for
+        for (int i = 0; i < num_points; i++) {
+            x = (double)rand() / RAND_MAX;
+            y = (double)rand() / RAND_MAX;
+
+            if (x * x + y * y <= 1.0) {
+                count++; 
+            }
+        }
+    }
+
+    double pi = 4.0 * count / num_points;
+    printf("Estimated value of Pi = %f\n", pi);
+
+    return 0;
+}
+-------------------------------------------------------
+//m coloring
+#include <stdio.h>
+#include <omp.h>
+
+#define V 4  // Number of vertices
+#define M 3  // Number of colors
+
+// Graph adjacency matrix
+int graph[V][V] = {
+    {0, 1, 1, 1},
+    {1, 0, 1, 0},
+    {1, 1, 0, 1},
+    {1, 0, 1, 0}
+};
+
+// Function to check if it's safe to color vertex v with color c
+int isSafe(int v, int color[], int c)
+{
+    for (int i = 0; i < V; i++) 
+    {
+        if (graph[v][i] == 1 && color[i] == c) 
+            return 0;  // Not safe
+    }
+    return 1;  // Safe
+}
+
+// Parallelized backtracking function to solve M Coloring problem
+int graphColoring(int m, int color[], int v) 
+{
+    if (v == V) 
+    {
+        return 1;  // All vertices colored
+    }
+
+    for (int c = 1; c <= m; c++) 
+    {
+        if (isSafe(v, color, c)) 
+        {
+            color[v] = c;
+
+            int success = 0;
+            #pragma omp task shared(success)
+            {
+                success = graphColoring(m, color, v + 1);
+            }
+
+            #pragma omp taskwait  // Ensure all tasks finish
+            if (success) 
+                return 1;
+
+            color[v] = 0;  // Backtrack
+        }
+    }
+    return 0;
+}
+
+int main() {
+    int color[V] = {0};  
+    #pragma omp parallel
+    {
+        #pragma omp single
+        graphColoring(M, color, 0);
+    }
+
+    printf("Solution found:\n");
+    for (int i = 0; i < V; i++) {
+        printf("Vertex %d --> Color %d\n", i, color[i]);
+    }
+
+    return 0;
+}
+-----------------------------------------------------------
+//dining
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <omp.h>
+
+#define N 5  // Number of philosophers
+
+omp_lock_t forks[N];  // Locks representing forks
+
+void think(int id) {
+    printf("Philosopher %d is thinking...\n", id);
+    usleep(rand() % 1000000);  // Simulate thinking time
+}
+
+void eat(int id) {
+    printf("Philosopher %d is eating...\n", id);
+    usleep(rand() % 1000000);  // Simulate eating time
+}
+
+void philosopher(int id) 
+{
+    int left = id;                  // Left fork index
+    int right = (id + 1) % N;        // Right fork index
+
+    while (1) 
+    {  // Infinite loop for continuous dining
+        think(id);
+
+        // Prevent deadlock: Pick the lower index fork first
+        if (left < right) 
+        {
+            omp_set_lock(&forks[left]);
+            omp_set_lock(&forks[right]);
+        } 
+        else 
+        {
+            omp_set_lock(&forks[right]);
+            omp_set_lock(&forks[left]);
+        }
+
+        eat(id);  // Eating
+
+        // Release forks after eating
+        omp_unset_lock(&forks[left]);
+        omp_unset_lock(&forks[right]);
+    }
+}
+
+int main() {
+    srand(42);  
+
+    // Initialize locks (forks)
+    for (int i = 0; i < N; i++) {
+        omp_init_lock(&forks[i]);
+    }
+
+    printf("Dining Philosophers Problem - OpenMP Solution\n");
+
+    // Run philosophers in parallel
+    #pragma omp parallel for
+    for (int i = 0; i < N; i++) {
+        philosopher(i);
+    }
+
+    // Cleanup locks (This is unreachable in infinite loop, but for completeness)
+    for (int i = 0; i < N; i++) {
+        omp_destroy_lock(&forks[i]);
+    }
+
+    return 0;
+}
+--------------------------------------------------------------------------------
+//fibonacci
+#include <stdio.h>
+#include <omp.h>
+
+long long fib_serial(int n) {
+    if (n <= 1) return n;
+    return fib_serial(n - 1) + fib_serial(n - 2);
+}
+
+long long fib_parallel(int n) {
+    if (n <= 1) return n;
+
+    long long x, y;
+
+    #pragma omp task shared(x)
+    x = fib_parallel(n - 1);
+
+    #pragma omp task shared(y)
+    y = fib_parallel(n - 2);
+
+    #pragma omp taskwait  // Wait for both tasks to complete
+
+    return x + y;
+}
+
+int main() {
+    int n = 40;  // Compute Fibonacci(40)
+    long long result;
+    double start, end;
+
+    // **Serial Execution**
+    start = omp_get_wtime();
+    result = fib_serial(n);
+    end = omp_get_wtime();
+    printf("Serial Fibonacci(%d) = %lld\n", n, result);
+    printf("Serial Execution Time: %f seconds\n\n", end - start);
+
+    // **Parallel Execution**
+    start = omp_get_wtime();
+    #pragma omp parallel
+    {
+        #pragma omp single  // Ensure only one thread starts the computation
+        result = fib_parallel(n);
+    }
+    end = omp_get_wtime();
+    printf("Parallel Fibonacci(%d) = %lld\n", n, result);
+    printf("Parallel Execution Time: %f seconds\n", end - start);
+
+    return 0;
+}
+
