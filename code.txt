@@ -15,8 +15,63 @@ int main() {
     return 0;
 }
 -----------------------------------------------------------------------
+//serial quick sort
+#include <stdio.h>
 
-//quick sort
+#define N 10  
+
+void swap(int* a, int* b) {
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+int partition(int arr[], int low, int high) {
+    int pivot = arr[high];  
+    int i = low - 1;        
+
+    for (int j = low; j < high; j++) {
+        if (arr[j] < pivot) {  
+            i++;
+            swap(&arr[i], &arr[j]);
+        }
+    }
+    swap(&arr[i + 1], &arr[high]);  
+    return i + 1;  
+}
+
+void quickSort_serial(int arr[], int low, int high) {
+    if (low < high) {
+        int pi = partition(arr, low, high);
+        quickSort_serial(arr, low, pi - 1);
+        quickSort_serial(arr, pi + 1, high);
+    }
+}
+
+int main() {
+    int arr[N] = {9, 7, 5, 11, 12, 2, 14, 3, 10, 6};
+
+    printf("Unsorted array:\n");
+    for (int i = 0; i < N; i++) 
+        printf("%d ", arr[i]);
+    printf("\n");
+
+    double start_time = omp_get_wtime();
+    quickSort_serial(arr, 0, N - 1);
+    double end_time = omp_get_wtime();
+
+    printf("Sorted array:\n");
+    for (int i = 0; i < N; i++) 
+        printf("%d ", arr[i]);
+    printf("\n");
+
+    printf("Serial Execution Time: %f seconds\n", end_time - start_time);
+
+    return 0;
+}
+
+
+//parallel quick sort
 #include <omp.h>
 #include <stdio.h>
 
@@ -318,29 +373,39 @@ int main() {
 }
 ---------------------------------------------------------------------------
 // 2) Producer-Consumer Model
+#include <stdio.h>
+#include <unistd.h>  // For sleep()
+#include <omp.h>
+
 #define BUFFER_SIZE 5
 int buffer[BUFFER_SIZE], count = 0;
 omp_lock_t buffer_lock;
 
+// Serial Version
 void producer_consumer_sequential() {
+    printf("\nRunning Sequential Producer-Consumer...\n");
+
     for (int i = 0; i < 10; i++) {
         if (count < BUFFER_SIZE) {
             buffer[count++] = i;
             printf("Produced: %d\n", i);
         }
-        sleep(1);
+        sleep(1);  // Simulate production delay
 
         if (count > 0) {
             printf("Consumed: %d\n", buffer[--count]);
         }
-        sleep(2);
+        sleep(2);  // Simulate consumption delay
     }
 }
 
+// Parallel Version
 void producer_consumer_parallel() {
+    printf("\nRunning Parallel Producer-Consumer...\n");
+
     #pragma omp parallel sections
     {
-        #pragma omp section
+        #pragma omp section  // Producer
         {
             for (int i = 0; i < 10; i++) {
                 omp_set_lock(&buffer_lock);
@@ -353,7 +418,7 @@ void producer_consumer_parallel() {
             }
         }
 
-        #pragma omp section
+        #pragma omp section  // Consumer
         {
             for (int i = 0; i < 10; i++) {
                 omp_set_lock(&buffer_lock);
@@ -367,3 +432,22 @@ void producer_consumer_parallel() {
     }
 }
 
+int main() {
+    double start_time, end_time;
+
+    // Serial Execution
+    start_time = omp_get_wtime();
+    producer_consumer_sequential();
+    end_time = omp_get_wtime();
+    printf("\nSerial Execution Time: %f seconds\n", end_time - start_time);
+
+    // Parallel Execution
+    omp_init_lock(&buffer_lock);
+    start_time = omp_get_wtime();
+    producer_consumer_parallel();
+    end_time = omp_get_wtime();
+    omp_destroy_lock(&buffer_lock);
+    printf("\nParallel Execution Time: %f seconds\n", end_time - start_time);
+
+    return 0;
+}
